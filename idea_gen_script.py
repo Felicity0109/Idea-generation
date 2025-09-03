@@ -12,24 +12,20 @@ if topics:
     topics_df = pd.DataFrame(topics)
     st.dataframe(topics_df, use_container_width=True, hide_index=True)
 
-if W is not None:
     # Assign dominant topic per idea
+if W is not None:
     dom = np.argmax(W, axis=1)
     work["Topic"] = (dom + 1).astype(int)
-    
-    # Plot composition by group
-    comp = work.groupby(["Topic", group_col]).size().reset_index(name="Count")
-    fig = px.bar(
-        comp,
-        x="Topic",
-        y="Count",
-        color=group_col,
-        title="Topic composition by group",
-        barmode="group"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+
+    # Compute topic composition by group
+    comp = work.groupby(["Topic", group_col]).size().unstack(fill_value=0)
+
+    # st.bar_chart expects numeric DataFrame; topics as index, groups as columns
+    st.subheader("Topic composition by group")
+    st.bar_chart(comp)
 else:
     st.info("Topic model could not be fitted (insufficient text or unique terms).")
+
 
 st.markdown("---")
 
