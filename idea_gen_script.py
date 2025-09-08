@@ -1,81 +1,212 @@
-from __future__ import annotations
+import streamlit as st
 import pandas as pd
 import numpy as np
-import streamlit as st
 import re
+from datetime import datetime
 
-# ----------------------------
-# Topic table
-# ----------------------------
-if topics:
-    topics_df = pd.DataFrame(topics)
-    st.dataframe(topics_df, use_container_width=True, hide_index=True)
+# text
+import nltk
+from nltk.corpus import stopwords
+from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-    # Assign dominant topic per idea
-if W is not None:
-    dom = np.argmax(W, axis=1)
-    work["Topic"] = (dom + 1).astype(int)
+# dim reduction & clustering
+import umap
+import hdbscan
 
-    # Compute topic composition by group
-    comp = work.groupby(["Topic", group_col]).size().unstack(fill_value=0)
+# plotting
+import plotly.express as px
+import networkx as nx
 
-    # st.bar_chart expects numeric DataFrame; topics as index, groups as columns
-    st.subheader("Topic composition by group")
-    st.bar_chart(comp)
-else:
-    st.info("Topic model could not be fitted (insufficient text or unique terms).")
+# caching
+from functools import lru_cache
+
+# --- init nltk (first run will download) ---
+nltk.download('stopwords')
+STOPWORDS = set(stopwords.words('english'))
+
+# --- CONFIG ---
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # lightweight and effective
+UMAP_N_NEIGHBORS = 15
+UMAP_MIN_DIST = 0.1
+UMAP_N_COMPONENTS = 2
+HDBSCAN_MIN_CLUSTER_SIZE = 3
+SIMILARITY_THRESHOLD = 0.65  # for network edges
+
+# --- utilities ---
+
+def clean_text(text):
+    if not isinstance(text, str):
+        return ""
+    txt = text.lower()
+    txt = re.sub(r"https?://\S+|www\.\S+", " ", txt)  # remove URLs
+    txt = re.sub(r"[^a-z0-9\s]", " ", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+    tokens = [t for t in txt.split() if t not in STOPWORDS and len(t) > 1]
+    return " ".join(tokens)
+
+@st.cache_resource
+def load_embedding_model(name=EMBEDDING_MODEL):
+    return SentenceTransformer(name)
+
+@st.cache_data(ttl=3600)
+def compute_embeddings(texts, model_name=EMBEDDING_MODEL):
+    model = load_embedding_model(model_name)
+    embeddings = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+    return embeddings
+
+@st.cache_data(ttl=3600)
+def reduce_embeddings(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist=UMAP_MIN_DIST, n_components=UMAP_N_COMPONENTS):
+    reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_components=n_components, random_state=42)
+    embedding_2d = reducer.fit_transform(embeddings)
+    return embedding_2d
+
+@st.cache_data(ttl=3600)
+def cluster_embeddings(embeddings, min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE):
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom')
+    labels = clusterer.fit_predict(embeddings)
+    return labels
+
+@st.cache_data(ttl=3600)
+def extract_top_terms_per_cluster(docs, labels, top_n=8):
+    df = pd.DataFrame({'doc': docs, 'label': labels})
+    docs_by_label = df.groupby('label')['doc'].apply(lambda x: " ".join(x)).to_dict()
+    results = {}
+    for label, bigdoc in docs_by_label.items():
+        if label == -1:
+            label_name = 'noise'
+        else:
+            label_name = f'cluster_{label}'
+        vect = TfidfVectorizer(max_features=2000, ngram_range=(1,2))
+        X = vect.fit_transform([bigdoc])
+        terms = np.array(vect.get_feature_names_out())
+        scores = X.toarray()[0]
+        top_idx = scores.argsort()[::-1][:top_n]
+        top_terms = list(terms[top_idx])
+        results[label_name] = top_terms
+    return results
 
 
-st.markdown("---")
+def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
+    sim = cosine_similarity(embeddings)
+    n = len(docs)
+    G = nx.Graph()
+    for i in range(n):
+        G.add_node(i, label=docs[i])
+    for i in range(n):
+        for j in range(i+1, n):
+            s = sim[i,j]
+            if s >= threshold:
+                G.add_edge(i, j, weight=float(s))
+    return G
 
-# ----------------------------
-# Searchable table + download
-# ----------------------------
-st.subheader("Idea Catalogue")
+# --- Streamlit App ---
 
-q1, q2 = st.columns([2, 1])
-with q1:
-    search = st.text_input("Search (title/description)", "")
-with q2:
-    sel_group = st.multiselect(
-        "Filter by group",
-        sorted(work[group_col].fillna("Unknown").unique().tolist())
-    )
+def run_app():
+    st.set_page_config(layout='wide', page_title='Idea Mining Dashboard')
+    st.title('Idea Mining — Streamlit Dashboard')
 
-filtered = work.copy()
+    st.sidebar.header('Data source')
+    uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
+    if uploaded_file is None:
+        st.info('Upload a .xlsx file with columns: Idea_ID, Department, Submitted_By, Date_Submitted, Idea_Text')
+        st.stop()
+    df = pd.read_excel(uploaded_file)
 
-if search:
-    s = search.lower()
-    mask = filtered["__text__"].str.contains(re.escape(s), case=False, na=False)
-    filtered = filtered[mask]
+    # minimal validation
+    required_cols = ['Idea_ID', 'Department', 'Submitted_By', 'Date_Submitted', 'Idea_Text']
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f'Missing required columns in Excel: {missing}')
+        st.stop()
 
-if sel_group:
-    filtered = filtered[filtered[group_col].isin(sel_group)]
+    df = df.copy()
+    try:
+        df['Date_Submitted'] = pd.to_datetime(df['Date_Submitted'])
+    except Exception:
+        df['Date_Submitted'] = pd.NaT
 
-show_cols = [title_col, desc_col, group_col, date_col]
-if "Topic" in filtered.columns:
-    show_cols.append("Topic")
+    if 'preprocessed' not in st.session_state:
+        st.session_state['preprocessed'] = False
 
-st.dataframe(
-    filtered[show_cols].sort_values(by=date_col, ascending=False),
-    use_container_width=True
-)
+    if not st.session_state['preprocessed']:
+        with st.spinner('Preprocessing and computing embeddings...'):
+            df['clean_text'] = df['Idea_Text'].astype(str).apply(clean_text)
+            texts = df['clean_text'].tolist()
+            embeddings = compute_embeddings(texts)
+            emb2d = reduce_embeddings(embeddings)
+            labels = cluster_embeddings(embeddings)
+            df['cluster'] = labels
+            df['umap_x'] = emb2d[:,0]
+            df['umap_y'] = emb2d[:,1]
+            cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
+            G = build_similarity_graph(df['Idea_Text'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
+            st.session_state['df'] = df
+            st.session_state['embeddings'] = embeddings
+            st.session_state['G'] = G
+            st.session_state['cluster_terms'] = cluster_terms
+            st.session_state['preprocessed'] = True
 
-# Download buttons
-csv = filtered[show_cols].to_csv(index=False).encode("utf-8")
-st.download_button(
-    "Download filtered (CSV)",
-    data=csv,
-    file_name="ideas_filtered.csv",
-    mime="text/csv"
-)
+    df = st.session_state['df']
 
-# ----------------------------
-# Footer / Help
-# ----------------------------
-with st.expander("Deployment Tips"):
-    st.markdown(
-        """
-Developed by SASOL Research and Technology (2025) ©
-"""
-    )
+    st.header('Overview')
+    c1, c2 = st.columns([2,1])
+    with c1:
+        st.subheader('UMAP projection of idea embeddings')
+        fig = px.scatter(df, x='umap_x', y='umap_y', color=df['cluster'].astype(str), hover_data=['Idea_ID','Department','Submitted_By','Idea_Text'], title='UMAP: ideas colored by cluster')
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        st.subheader('Cluster summary')
+        cluster_summary = df.groupby('cluster').agg(
+            count=('Idea_ID','count'),
+            departments=('Department', lambda x: ', '.join(sorted(set(x))) )
+        ).reset_index()
+        cluster_summary['top_terms'] = cluster_summary['cluster'].apply(lambda r: st.session_state['cluster_terms'].get(f'cluster_{r}', st.session_state['cluster_terms'].get('noise', [])))
+        st.dataframe(cluster_summary)
+
+    st.markdown('---')
+    st.header('Network view (similar ideas)')
+    G = st.session_state['G']
+    if len(G.edges) == 0:
+        st.info('No edges found at the similarity threshold.')
+    pos = nx.spring_layout(G, k=0.5, seed=42)
+
+    node_x, node_y, node_text, node_color = [], [], [], []
+    for n in G.nodes():
+        x,y = pos[n]
+        node_x.append(x)
+        node_y.append(y)
+        row = df.iloc[n]
+        node_text.append(f"{row['Idea_ID']} - {row['Department']}\n{row['Idea_Text'][:200]}")
+        node_color.append(row['cluster'])
+
+    net_fig = px.scatter(x=node_x, y=node_y, color=node_color, hover_name=node_text, labels={'color':'cluster'})
+    st.plotly_chart(net_fig, use_container_width=True)
+
+    st.markdown('---')
+    st.header('Cluster drilldown & timeline')
+    sel_cluster = st.selectbox('Select cluster', options=sorted(df['cluster'].unique().tolist()))
+    sub = df[df['cluster']==sel_cluster]
+    st.subheader(f'Cluster {sel_cluster} — {len(sub)} ideas')
+    st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
+    st.dataframe(sub[['Idea_ID','Department','Submitted_By','Date_Submitted','Idea_Text']].sort_values('Date_Submitted', ascending=False))
+
+    timeline = sub.set_index('Date_Submitted').resample('W').size()
+    if len(timeline) > 0:
+        tfig = px.line(x=timeline.index, y=timeline.values, labels={'x':'Date','y':'Count'}, title='Submissions over time (weekly)')
+        st.plotly_chart(tfig, use_container_width=True)
+    else:
+        st.info('Not enough date data for timeline.')
+
+    st.markdown('---')
+    st.header('Export & Utilities')
+    if st.button('Download processed CSV'):
+        tmp = df.copy()
+        tmp['Date_Submitted'] = tmp['Date_Submitted'].astype(str)
+        csv = tmp.to_csv(index=False).encode('utf-8')
+        st.download_button('Click to download CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
+
+
+if __name__ == '__main__':
+    run_app()
