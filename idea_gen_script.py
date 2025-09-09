@@ -111,8 +111,8 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 # --- Streamlit App ---
 
 def run_app():
-    st.set_page_config(layout='wide', page_title='Idea Mining Dashboard')
-    st.title('Idea Mining — Streamlit Dashboard')
+    st.set_page_config(layout='wide', page_title='R&T Idea Mining')
+    st.title('R&T Idea Mining')
 
     st.sidebar.header('Data source')
     uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
@@ -243,3 +243,13 @@ def run_app():
 
 if __name__ == '__main__':
     run_app()
+
+     # At the very end of run_app()
+st.markdown(
+    ] """
+    ---
+     © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
+        """,
+        unsafe_allow_html=True,
+    )
+
