@@ -22,9 +22,12 @@ import networkx as nx
 # caching
 from functools import lru_cache
 
-# --- init nltk (first run will download) ---
-nltk.download('stopwords')
-STOPWORDS = set(stopwords.words('english'))
+# --- Ensure stopwords available (safe for Streamlit) ---
+try:
+    STOPWORDS = set(stopwords.words('english'))
+except LookupError:
+    nltk.download('stopwords')
+    STOPWORDS = set(stopwords.words('english'))
 
 # --- CONFIG ---
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # lightweight and effective
@@ -73,22 +76,26 @@ def extract_top_terms_per_cluster(docs, labels, top_n=8):
     df = pd.DataFrame({'doc': docs, 'label': labels})
     docs_by_label = df.groupby('label')['doc'].apply(lambda x: " ".join(x)).to_dict()
     results = {}
+    vect = TfidfVectorizer(max_features=2000, ngram_range=(1,2))
+    # Build per-label TF-IDF from the single aggregated doc for that label
     for label, bigdoc in docs_by_label.items():
         if label == -1:
             label_name = 'noise'
         else:
             label_name = f'cluster_{label}'
-        vect = TfidfVectorizer(max_features=2000, ngram_range=(1,2))
+        # Fit on the aggregated document (list of one) — yields terms and scores
         X = vect.fit_transform([bigdoc])
         terms = np.array(vect.get_feature_names_out())
         scores = X.toarray()[0]
         top_idx = scores.argsort()[::-1][:top_n]
-        top_terms = list(terms[top_idx])
+        top_terms = list(terms[top_idx]) if len(terms) > 0 else []
         results[label_name] = top_terms
     return results
 
 
 def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
+    if len(docs) == 0:
+        return nx.Graph()
     sim = cosine_similarity(embeddings)
     n = len(docs)
     G = nx.Graph()
@@ -96,9 +103,9 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
         G.add_node(i, label=docs[i])
     for i in range(n):
         for j in range(i+1, n):
-            s = sim[i,j]
-            if s >= threshold:
-                G.add_edge(i, j, weight=float(s))
+            s = float(sim[i, j])
+            if np.isfinite(s) and s >= threshold:
+                G.add_edge(i, j, weight=s)
     return G
 
 # --- Streamlit App ---
@@ -138,8 +145,13 @@ def run_app():
             emb2d = reduce_embeddings(embeddings)
             labels = cluster_embeddings(embeddings)
             df['cluster'] = labels
-            df['umap_x'] = emb2d[:,0]
-            df['umap_y'] = emb2d[:,1]
+            # guard if UMAP returned 1-D or unexpected shape
+            if emb2d.ndim == 2 and emb2d.shape[1] >= 2:
+                df['umap_x'] = emb2d[:, 0]
+                df['umap_y'] = emb2d[:, 1]
+            else:
+                df['umap_x'] = 0.0
+                df['umap_y'] = 0.0
             cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
             G = build_similarity_graph(df['Idea_Text'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
             st.session_state['df'] = df
@@ -151,61 +163,82 @@ def run_app():
     df = st.session_state['df']
 
     st.header('Overview')
-    c1, c2 = st.columns([2,1])
+    c1, c2 = st.columns([2, 1])
     with c1:
         st.subheader('UMAP projection of idea embeddings')
-        fig = px.scatter(df, x='umap_x', y='umap_y', color=df['cluster'].astype(str), hover_data=['Idea_ID','Department','Submitted_By','Idea_Text'], title='UMAP: ideas colored by cluster')
+        fig = px.scatter(df, x='umap_x', y='umap_y', color=df['cluster'].astype(str),
+                         hover_data=['Idea_ID', 'Department', 'Submitted_By', 'Idea_Text'],
+                         title='UMAP: ideas colored by cluster')
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         st.subheader('Cluster summary')
         cluster_summary = df.groupby('cluster').agg(
-            count=('Idea_ID','count'),
+            count=('Idea_ID', 'count'),
             departments=('Department', lambda x: ', '.join(sorted(set(x))) )
         ).reset_index()
-        cluster_summary['top_terms'] = cluster_summary['cluster'].apply(lambda r: st.session_state['cluster_terms'].get(f'cluster_{r}', st.session_state['cluster_terms'].get('noise', [])))
+        # Map cluster index to top terms (fall back to noise)
+        def top_terms_for_label(r):
+            return st.session_state['cluster_terms'].get(f'cluster_{r}', st.session_state['cluster_terms'].get('noise', []))
+        cluster_summary['top_terms'] = cluster_summary['cluster'].apply(top_terms_for_label)
         st.dataframe(cluster_summary)
 
     st.markdown('---')
     st.header('Network view (similar ideas)')
     G = st.session_state['G']
-    if len(G.edges) == 0:
-        st.info('No edges found at the similarity threshold.')
-    pos = nx.spring_layout(G, k=0.5, seed=42)
 
-    node_x, node_y, node_text, node_color = [], [], [], []
-    for n in G.nodes():
-        x,y = pos[n]
-        node_x.append(x)
-        node_y.append(y)
-        row = df.iloc[n]
-        node_text.append(f"{row['Idea_ID']} - {row['Department']}\n{row['Idea_Text'][:200]}")
-        node_color.append(row['cluster'])
+    if G.number_of_nodes() == 0:
+        st.info('No nodes generated for the similarity graph (check data / embeddings).')
+    else:
+        # If there are no edges, still compute positions but handle gracefully
+        try:
+            pos = nx.spring_layout(G, k=0.5, seed=42)
+        except Exception:
+            pos = {n: (0.0, float(i)) for i, n in enumerate(G.nodes())}
 
-    net_fig = px.scatter(x=node_x, y=node_y, color=node_color, hover_name=node_text, labels={'color':'cluster'})
-    st.plotly_chart(net_fig, use_container_width=True)
+        node_x, node_y, node_text, node_color = [], [], [], []
+        for n in G.nodes():
+            x, y = pos.get(n, (0.0, 0.0))
+            node_x.append(x)
+            node_y.append(y)
+            row = df.iloc[n]
+            hover_preview = (row['Idea_Text'][:200] + '...') if len(str(row['Idea_Text'])) > 200 else row['Idea_Text']
+            node_text.append(f"{row['Idea_ID']} - {row['Department']}\n{hover_preview}")
+            node_color.append(str(row['cluster']))  # use string so plotly treats as discrete
+
+        net_fig = px.scatter(x=node_x, y=node_y, color=node_color,
+                             hover_name=node_text,
+                             labels={'color': 'cluster'},
+                             title='Similarity network (nodes sized equally)')
+        st.plotly_chart(net_fig, use_container_width=True)
 
     st.markdown('---')
     st.header('Cluster drilldown & timeline')
-    sel_cluster = st.selectbox('Select cluster', options=sorted(df['cluster'].unique().tolist()))
-    sub = df[df['cluster']==sel_cluster]
+    sel_options = sorted(df['cluster'].unique().tolist())
+    sel_cluster = st.selectbox('Select cluster', options=sel_options)
+    sub = df[df['cluster'] == sel_cluster]
     st.subheader(f'Cluster {sel_cluster} — {len(sub)} ideas')
     st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
-    st.dataframe(sub[['Idea_ID','Department','Submitted_By','Date_Submitted','Idea_Text']].sort_values('Date_Submitted', ascending=False))
+    st.dataframe(sub[['Idea_ID', 'Department', 'Submitted_By', 'Date_Submitted', 'Idea_Text']].sort_values('Date_Submitted', ascending=False))
 
-    timeline = sub.set_index('Date_Submitted').resample('W').size()
+    # timeline (weekly) - guard against empty dates
+    if sub['Date_Submitted'].notna().sum() > 0:
+        timeline = sub.set_index('Date_Submitted').resample('W').size()
+    else:
+        timeline = pd.Series(dtype=int)
+
     if len(timeline) > 0:
-        tfig = px.line(x=timeline.index, y=timeline.values, labels={'x':'Date','y':'Count'}, title='Submissions over time (weekly)')
+        tfig = px.line(x=timeline.index, y=timeline.values, labels={'x': 'Date', 'y': 'Count'}, title='Submissions over time (weekly)')
         st.plotly_chart(tfig, use_container_width=True)
     else:
         st.info('Not enough date data for timeline.')
 
     st.markdown('---')
     st.header('Export & Utilities')
-    if st.button('Download processed CSV'):
-        tmp = df.copy()
-        tmp['Date_Submitted'] = tmp['Date_Submitted'].astype(str)
-        csv = tmp.to_csv(index=False).encode('utf-8')
-        st.download_button('Click to download CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
+    # Show download button directly (no extra click required)
+    tmp = df.copy()
+    tmp['Date_Submitted'] = tmp['Date_Submitted'].astype(str)
+    csv = tmp.to_csv(index=False).encode('utf-8')
+    st.download_button('Download processed CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
 
 
 if __name__ == '__main__':
