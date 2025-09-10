@@ -10,11 +10,14 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # dim reduction & clustering
 import umap
+from sklearn.decomposition import PCA
 import hdbscan
 
 # plotting
 import plotly.express as px
 import networkx as nx
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
 
 # caching
 from functools import lru_cache
@@ -52,10 +55,17 @@ def compute_embeddings(texts, model_name=EMBEDDING_MODEL):
     embeddings = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
     return embeddings
 
-@st.cache_data(ttl=3600)
-def reduce_embeddings(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist=UMAP_MIN_DIST, n_components=UMAP_N_COMPONENTS):
-    reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_components=n_components, random_state=42)
-    return reducer.fit_transform(embeddings)
+def reduce_embeddings_dynamic(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist=UMAP_MIN_DIST, n_components=UMAP_N_COMPONENTS):
+    n_rows = embeddings.shape[0]
+    if n_rows <= 50:
+        reducer = PCA(n_components=n_components, random_state=42)
+        reduced = reducer.fit_transform(embeddings)
+        method = 'PCA'
+    else:
+        reducer = umap.UMAP(n_neighbors=n_neighbors, min_dist=min_dist, n_components=n_components, random_state=42)
+        reduced = reducer.fit_transform(embeddings)
+        method = 'UMAP'
+    return reduced, method
 
 @st.cache_data(ttl=3600)
 def cluster_embeddings(embeddings, min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE):
@@ -94,7 +104,7 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 
 # --- Streamlit App ---
 def run_app():
-    st.set_page_config(layout='wide', page_title='R&T Idea Mining')
+    st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
     st.title('R&T Idea Mining')
 
     # Footer
@@ -113,9 +123,11 @@ def run_app():
         st.stop()
 
     df = pd.read_excel(uploaded_file)
+    # Make column names lowercase
+    df.columns = [c.lower() for c in df.columns]
 
     # minimal validation
-    required_cols = ['Idea', 'Research group']
+    required_cols = ['idea', 'research group']
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         st.error(f'Missing required columns: {missing}')
@@ -126,39 +138,42 @@ def run_app():
 
     if not st.session_state['preprocessed']:
         with st.spinner('Processing ideas...'):
-            df['clean_text'] = df['Idea'].astype(str).apply(clean_text)
+            df['clean_text'] = df['idea'].astype(str).apply(clean_text)
             texts = df['clean_text'].tolist()
             embeddings = compute_embeddings(texts)
-            emb2d = reduce_embeddings(embeddings)
+            emb2d, method = reduce_embeddings_dynamic(embeddings)
             labels = cluster_embeddings(embeddings)
             df['cluster'] = labels
             df['umap_x'] = emb2d[:,0] if emb2d.shape[1]>=2 else 0.0
             df['umap_y'] = emb2d[:,1] if emb2d.shape[1]>=2 else 0.0
             cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
-            G = build_similarity_graph(df['Idea'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
+            G = build_similarity_graph(df['idea'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
             st.session_state.update({
                 'df': df,
                 'embeddings': embeddings,
                 'G': G,
                 'cluster_terms': cluster_terms,
+                'method': method,
                 'preprocessed': True
             })
 
     df = st.session_state['df']
+    method = st.session_state['method']
 
     st.header('Overview')
+    st.write(f"Dimensionality reduction method used: {method}")
     c1, c2 = st.columns([2,1])
     with c1:
-        st.subheader('UMAP projection of ideas')
+        st.subheader(f'{method} projection of ideas')
         fig = px.scatter(df, x='umap_x', y='umap_y', color=df['cluster'].astype(str),
-                         hover_data=['Idea','Research group'],
-                         title='UMAP: ideas colored by cluster')
+                         hover_data=['idea','research group'],
+                         title=f'{method}: ideas colored by cluster')
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         st.subheader('Cluster summary')
         cluster_summary = df.groupby('cluster').agg(
-            count=('Idea','count'),
-            groups=('Research group', lambda x: ', '.join(sorted(set(x))))
+            count=('idea','count'),
+            groups=('research group', lambda x: ', '.join(sorted(set(x))))
         ).reset_index()
         cluster_summary['top_terms'] = cluster_summary['cluster'].apply(
             lambda r: st.session_state['cluster_terms'].get(f'cluster_{r}', st.session_state['cluster_terms'].get('noise', []))
@@ -178,8 +193,8 @@ def run_app():
             node_x.append(x)
             node_y.append(y)
             row = df.iloc[n]
-            hover_preview = (row['Idea'][:200]+'...') if len(str(row['Idea']))>200 else row['Idea']
-            node_text.append(f"{row['Idea']} - {row['Research group']}\n{hover_preview}")
+            hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
+            node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
             node_color.append(str(row['cluster']))
         net_fig = px.scatter(x=node_x, y=node_y, color=node_color, hover_name=node_text,
                              labels={'color':'cluster'}, title='Similarity network')
@@ -191,19 +206,14 @@ def run_app():
     sub = df[df['cluster']==sel_cluster]
     st.subheader(f'Cluster {sel_cluster} — {len(sub)} ideas')
     st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
-    st.dataframe(sub[['Idea','Research group']])
+    st.dataframe(sub[['idea','research group']])
 
-    
     st.markdown('---')
     st.header('Word Cloud of All Ideas')
-
-    # Combine all clean text
     all_text = " ".join(df['clean_text'].tolist())
-
-    if all_text.strip():  # check that there is text
+    if all_text.strip():
         wc = WordCloud(width=800, height=400, background_color='white',
                        colormap='viridis', stopwords=STOPWORDS).generate(all_text)
-
         fig, ax = plt.subplots(figsize=(10,5))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
@@ -211,10 +221,9 @@ def run_app():
     else:
         st.info("No text available for word cloud generation.")
 
-
     st.markdown('---')
     st.header('Export & Utilities')
-    tmp = df[['Idea','Research group']].copy()
+    tmp = df[['idea','research group']].copy()
     csv = tmp.to_csv(index=False).encode('utf-8')
     st.download_button('Download processed CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
 
