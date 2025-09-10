@@ -33,7 +33,7 @@ UMAP_N_NEIGHBORS = 15
 UMAP_MIN_DIST = 0.1
 UMAP_N_COMPONENTS = 2
 HDBSCAN_MIN_CLUSTER_SIZE = 3
-SIMILARITY_THRESHOLD = 0.25
+SIMILARITY_THRESHOLD = 0.20
 
 # --- utilities ---
 def clean_text(text):
@@ -183,11 +183,32 @@ def run_app():
 
     st.markdown('---')
     st.header('Network view (similar ideas)')
-    G = st.session_state['G']
+    G_full = st.session_state['G']
     
-    if G.number_of_nodes() == 0:
+    if G_full.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
     else:
+        zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
+        if zoom_top_n:
+            sim = cosine_similarity(st.session_state['embeddings'])
+            n = len(sim)
+            edges = []
+            for i in range(n):
+                for j in range(i+1, n):
+                    edges.append((i, j, sim[i,j]))
+
+            edges_sorted = sorted(edges, key=lambda x: x[2], reverse=True)
+            top_edges = edges_sorted[:20]
+            # Build subgraph
+            G = nx.Graph()
+            for i in range(n):
+                G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
+            for i, j, s in top_edges:
+                G.add_edge(i, j, weight=s)
+
+        else:
+            G = G_full
+                
         pos = nx.spring_layout(G, k=0.5, seed=42)
         # Edges
         edge_x = []
