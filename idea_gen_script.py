@@ -105,7 +105,7 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 # --- Streamlit App ---
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
-    st.title('R&T Idea Mining')
+    st.title('Sasol R&T Idea Mining')
 
     # Footer
     st.markdown(
