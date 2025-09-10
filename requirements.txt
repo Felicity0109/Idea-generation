@@ -10,4 +10,5 @@ hdbscan
 plotly
 networkx
 WordCloud
+scipy
 
