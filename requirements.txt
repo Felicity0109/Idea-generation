@@ -9,4 +9,5 @@ umap-learn
 hdbscan
 plotly
 networkx
+WordCloud
 
