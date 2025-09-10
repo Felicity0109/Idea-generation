@@ -208,27 +208,6 @@ def run_app():
                 'preprocessed': True
             })
 
-    # --- Filtering UI ---
-    st.sidebar.header("Filters")
-    cluster_options = sorted(df['cluster'].unique())
-    group_options = sorted(df['research group'].unique())
-    topic_options = sorted(df['topic'].unique())
-
-    sel_cluster = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
-    sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
-    sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
-    novelty_min, novelty_max = st.sidebar.slider("Novelty score", min_value=0.0, max_value=1.0, value=(0.0,1.0), step=0.01)
-
-    filtered_df = df[
-        (df['cluster'].isin(sel_cluster)) &
-        (df['research group'].isin(sel_group)) &
-        (df['topic'].isin(sel_topic)) &
-        (df['novelty'].between(novelty_min, novelty_max))
-    ]
-
-    st.header(f"Filtered Ideas ({len(filtered_df)})")
-    st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
-
     df = st.session_state['df']
     method = st.session_state['method']
 
@@ -362,6 +341,35 @@ def run_app():
         st.pyplot(fig)
     else:
         st.info("No text available for word cloud generation.")
+
+    # Ensure we work on processed df
+df = st.session_state['df']
+
+# --- Filtering UI ---
+st.sidebar.header("Filters")
+
+# Only show filters if preprocessing was done
+if 'cluster' in df.columns and 'topic' in df.columns and 'novelty' in df.columns:
+    cluster_options = sorted(df['cluster'].unique())
+    group_options = sorted(df['research group'].unique())
+    topic_options = sorted(df['topic'].unique())
+
+    sel_cluster = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
+    sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
+    sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
+    novelty_min, novelty_max = st.sidebar.slider("Novelty score", min_value=0.0, max_value=1.0, value=(0.0,1.0), step=0.01)
+
+    filtered_df = df[
+        (df['cluster'].isin(sel_cluster)) &
+        (df['research group'].isin(sel_group)) &
+        (df['topic'].isin(sel_topic)) &
+        (df['novelty'].between(novelty_min, novelty_max))
+    ]
+
+    st.header(f"Filtered Ideas ({len(filtered_df)})")
+    st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
+else:
+    st.warning("Please upload and process the ideas file first.")
 
     st.markdown('---')
     st.header('Export & Utilities')
