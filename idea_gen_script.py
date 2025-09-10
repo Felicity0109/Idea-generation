@@ -29,7 +29,7 @@ UMAP_N_NEIGHBORS = 15
 UMAP_MIN_DIST = 0.1
 UMAP_N_COMPONENTS = 2
 HDBSCAN_MIN_CLUSTER_SIZE = 3
-SIMILARITY_THRESHOLD = 0.65
+SIMILARITY_THRESHOLD = 0.35
 
 # --- utilities ---
 def clean_text(text):
@@ -96,6 +96,15 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 def run_app():
     st.set_page_config(layout='wide', page_title='R&T Idea Mining')
     st.title('R&T Idea Mining')
+
+    # Footer
+    st.markdown(
+        """
+        ---
+        © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.sidebar.header('Data source')
     uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
@@ -184,20 +193,31 @@ def run_app():
     st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
     st.dataframe(sub[['Idea','Research group']])
 
+    
+    st.markdown('---')
+    st.header('Word Cloud of All Ideas')
+
+    # Combine all clean text
+    all_text = " ".join(df['clean_text'].tolist())
+
+    if all_text.strip():  # check that there is text
+        wc = WordCloud(width=800, height=400, background_color='white',
+                       colormap='viridis', stopwords=STOPWORDS).generate(all_text)
+
+        fig, ax = plt.subplots(figsize=(10,5))
+        ax.imshow(wc, interpolation='bilinear')
+        ax.axis("off")
+        st.pyplot(fig)
+    else:
+        st.info("No text available for word cloud generation.")
+
+
     st.markdown('---')
     st.header('Export & Utilities')
     tmp = df[['Idea','Research group']].copy()
     csv = tmp.to_csv(index=False).encode('utf-8')
     st.download_button('Download processed CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
 
-    # Footer
-    st.markdown(
-        """
-        ---
-        © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
-        """,
-        unsafe_allow_html=True,
-    )
 
 if __name__ == '__main__':
     run_app()
