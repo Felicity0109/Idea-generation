@@ -1,4 +1,5 @@
 streamlit
+openpyxl
 pandas
 numpy
 nltk
@@ -8,3 +9,4 @@ umap-learn
 hdbscan
 plotly
 networkx
+
