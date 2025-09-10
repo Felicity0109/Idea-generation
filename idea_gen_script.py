@@ -210,12 +210,17 @@ def run_app():
         node_y = []
         node_color = []
         node_text = []
+
         for n in G.nodes():
             x, y = pos[n]
             node_x.append(x)
             node_y.append(y)
             row = st.session_state['df'].iloc[n]
-            node_color.append(str(row['cluster']))
+
+    # Map cluster to numeric color (noise=-1 becomes 0)
+            cluster_val = 0 if row['cluster'] == -1 else row['cluster']
+            node_color.append(cluster_val)
+
             hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
             node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
 
@@ -225,8 +230,10 @@ def run_app():
             marker=dict(
                 size=15,
                 color=node_color,
-                colorscale='Viridis',
-                line=dict(width=2, color='black')
+                colorscale='Viridis',  # numeric values now compatible
+                line=dict(width=2, color='black'),
+                showscale=True,
+                colorbar=dict(title='Cluster')
             ),
             text=node_text,
             hoverinfo='text'
