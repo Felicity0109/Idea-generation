@@ -112,7 +112,7 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 # --- Topic Modeling using simple TF-IDF + SVD ---
 @st.cache_data(ttl=3600)
 def topic_modeling(docs, n_topics=5):
-    vect = CountVectorizer(max_features=2000, stop_words=STOPWORDS)
+    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))
     X = vect.fit_transform(docs)
     svd = TruncatedSVD(n_components=n_topics, random_state=42)
     topics = svd.fit_transform(X)
