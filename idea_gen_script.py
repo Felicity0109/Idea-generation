@@ -138,6 +138,15 @@ def extract_top_terms_per_cluster(docs, labels, top_n=8):
         results[label_name] = list(terms[top_idx]) if len(terms) > 0 else []
     return results
 
+# --- Compute novelty score based on embedding distance --- 
+@st.cache_data(ttl=3600) 
+def compute_novelty(embeddings): 
+    # novelty = mean distance to all other ideas 
+    dists = euclidean_distances(embeddings) np.fill_diagonal(dists, np.nan) # ignore self-distance 
+    novelty = np.nanmean(dists, axis=1) # normalize between 0-1 
+    novelty = MinMaxScaler().fit_transform(novelty.reshape(-1,1)).flatten() 
+    return novelty
+    
 # --- Streamlit App ---
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
