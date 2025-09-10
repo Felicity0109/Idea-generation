@@ -203,6 +203,14 @@ def run_app():
     st.header(f"Filtered Ideas ({len(filtered_df)})")
     st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
 
+    st.markdown('---')
+    st.header('Top Words per Topic')
+
+    for topic, words in st.session_state['topic_terms'].items():
+        st.subheader(f"{topic}")
+        st.write(", ".join(words))
+
+
     # --- Overview ---
     st.header('Overview')
     st.write(f"Dimensionality reduction method used: {method}")
