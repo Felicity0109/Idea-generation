@@ -15,6 +15,7 @@ import hdbscan
 
 # plotting
 import plotly.express as px
+import plotly.graph_objects as go
 import networkx as nx
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
@@ -183,22 +184,63 @@ def run_app():
     st.markdown('---')
     st.header('Network view (similar ideas)')
     G = st.session_state['G']
+    
     if G.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
     else:
-        pos = nx.spring_layout(G, k=0.5, seed=42)
-        node_x, node_y, node_text, node_color = [], [], [], []
+        # Edges
+        edge_x = []
+        edge_y = []
+        for edge in G.edges():
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
+            edge_x += [x0, x1, None]  # None separates line segments
+            edge_y += [y0, y1, None]
+
+        edge_trace = go.Scatter(
+            x=edge_x, y=edge_y,
+            line=dict(width=1, color='#888'),
+            hoverinfo='none',
+            mode='lines'
+        )
+
+        # Nodes
+        node_x = []
+        node_y = []
+        node_color = []
+        node_text = []
         for n in G.nodes():
-            x,y = pos.get(n,(0.0,0.0))
+            x, y = pos[n]
             node_x.append(x)
             node_y.append(y)
-            row = df.iloc[n]
+            row = st.session_state['df'].iloc[n]
+            node_color.append(str(row['cluster']))
             hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
             node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
-            node_color.append(str(row['cluster']))
-        net_fig = px.scatter(x=node_x, y=node_y, color=node_color, hover_name=node_text,
-                             labels={'color':'cluster'}, title='Similarity network')
-        st.plotly_chart(net_fig, use_container_width=True)
+
+        node_trace = go.Scatter(
+            x=node_x, y=node_y,
+            mode='markers',
+            marker=dict(
+                size=15,
+                color=node_color,
+                colorscale='Viridis',
+                line=dict(width=2, color='black')
+            ),
+            text=node_text,
+            hoverinfo='text'
+        )
+
+        fig = go.Figure(data=[edge_trace, node_trace],
+                    layout=go.Layout(
+                        title='Similarity Network',
+                        showlegend=False,
+                        hovermode='closest',
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                    ))
+
+        st.plotly_chart(fig, use_container_width=True)
 
     st.markdown('---')
     st.header('Cluster drilldown')
