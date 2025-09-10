@@ -112,7 +112,7 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 # --- Topic Modeling using simple TF-IDF + SVD ---
 @st.cache_data(ttl=3600)
 def topic_modeling(docs, n_topics=5):
-    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))
+    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))  # convert set to list
     X = vect.fit_transform(docs)
     svd = TruncatedSVD(n_components=n_topics, random_state=42)
     topics = svd.fit_transform(X)
@@ -123,16 +123,20 @@ def topic_modeling(docs, n_topics=5):
         topic_terms[f'topic_{i}'] = list(terms[top_idx])
     return topics, topic_terms
 
-# --- Compute novelty score based on embedding distance ---
 @st.cache_data(ttl=3600)
-def compute_novelty(embeddings):
-    # novelty = mean distance to all other ideas
-    dists = euclidean_distances(embeddings)
-    np.fill_diagonal(dists, np.nan)  # ignore self-distance
-    novelty = np.nanmean(dists, axis=1)
-    # normalize between 0-1
-    novelty = MinMaxScaler().fit_transform(novelty.reshape(-1,1)).flatten()
-    return novelty
+def extract_top_terms_per_cluster(docs, labels, top_n=8):
+    df = pd.DataFrame({'doc': docs, 'label': labels})
+    docs_by_label = df.groupby('label')['doc'].apply(lambda x: " ".join(x)).to_dict()
+    results = {}
+    vect = TfidfVectorizer(max_features=2000, ngram_range=(1,2), stop_words=list(STOPWORDS))  # fix here
+    for label, bigdoc in docs_by_label.items():
+        label_name = 'noise' if label == -1 else f'cluster_{label}'
+        X = vect.fit_transform([bigdoc])
+        terms = np.array(vect.get_feature_names_out())
+        scores = X.toarray()[0]
+        top_idx = scores.argsort()[::-1][:top_n]
+        results[label_name] = list(terms[top_idx]) if len(terms) > 0 else []
+    return results
 
 # --- Streamlit App ---
 def run_app():
@@ -341,7 +345,7 @@ def run_app():
     all_text = " ".join(df['clean_text'].tolist())
     if all_text.strip():
         wc = WordCloud(width=800, height=400, background_color='white',
-                       colormap='viridis', stopwords=STOPWORDS).generate(all_text)
+                       colormap='viridis', stopwords=list(STOPWORDS)).generate(all_text)
         fig, ax = plt.subplots(figsize=(10,5))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
