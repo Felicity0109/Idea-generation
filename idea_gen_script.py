@@ -69,7 +69,7 @@ def reduce_embeddings_dynamic(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist
 
 @st.cache_data(ttl=3600)
 def cluster_embeddings(embeddings, min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE):
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom')
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom', cluster_selection_epsilon=0.1)
     return clusterer.fit_predict(embeddings)
 
 @st.cache_data(ttl=3600)
