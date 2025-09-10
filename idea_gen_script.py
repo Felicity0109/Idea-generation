@@ -188,6 +188,7 @@ def run_app():
     if G.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
     else:
+        pos = nx.spring_layout(G, k=0.5, seed=42)
         # Edges
         edge_x = []
         edge_y = []
