@@ -41,7 +41,7 @@ UMAP_N_COMPONENTS = 2
 HDBSCAN_MIN_CLUSTER_SIZE = 3
 SIMILARITY_THRESHOLD = 0.20
 
-# --- utilities ---
+# --- Utilities ---
 def clean_text(text):
     if not isinstance(text, str):
         return ""
@@ -54,6 +54,7 @@ def clean_text(text):
 
 @st.cache_resource
 def load_embedding_model(name=EMBEDDING_MODEL):
+    from sentence_transformers import SentenceTransformer
     return SentenceTransformer(name)
 
 @st.cache_data(ttl=3600)
@@ -109,10 +110,9 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
                 G.add_edge(i,j,weight=s)
     return G
 
-# --- Topic Modeling using simple TF-IDF + SVD ---
 @st.cache_data(ttl=3600)
 def topic_modeling(docs, n_topics=5):
-    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))  # convert set to list
+    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))
     X = vect.fit_transform(docs)
     svd = TruncatedSVD(n_components=n_topics, random_state=42)
     topics = svd.fit_transform(X)
@@ -124,43 +124,17 @@ def topic_modeling(docs, n_topics=5):
     return topics, topic_terms
 
 @st.cache_data(ttl=3600)
-def extract_top_terms_per_cluster(docs, labels, top_n=8):
-    df = pd.DataFrame({'doc': docs, 'label': labels})
-    docs_by_label = df.groupby('label')['doc'].apply(lambda x: " ".join(x)).to_dict()
-    results = {}
-    vect = TfidfVectorizer(max_features=2000, ngram_range=(1,2), stop_words=list(STOPWORDS))  # fix here
-    for label, bigdoc in docs_by_label.items():
-        label_name = 'noise' if label == -1 else f'cluster_{label}'
-        X = vect.fit_transform([bigdoc])
-        terms = np.array(vect.get_feature_names_out())
-        scores = X.toarray()[0]
-        top_idx = scores.argsort()[::-1][:top_n]
-        results[label_name] = list(terms[top_idx]) if len(terms) > 0 else []
-    return results
-
-# --- Compute novelty score based on embedding distance --- 
-@st.cache_data(ttl=3600) 
-def compute_novelty(embeddings): 
-    # novelty = mean distance to all other ideas 
-    dists = euclidean_distances(embeddings) 
-    np.fill_diagonal(dists, np.nan) # ignore self-distance 
-    novelty = np.nanmean(dists, axis=1) # normalize between 0-1 
-    novelty = MinMaxScaler().fit_transform(novelty.reshape(-1,1)).flatten() 
+def compute_novelty(embeddings):
+    dists = euclidean_distances(embeddings)
+    np.fill_diagonal(dists, np.nan)
+    novelty = np.nanmean(dists, axis=1)
+    novelty = MinMaxScaler().fit_transform(novelty.reshape(-1,1)).flatten()
     return novelty
-    
+
 # --- Streamlit App ---
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
     st.title('Sasol R&T Idea Mining')
-
-    # Footer
-    st.markdown(
-        """
-        ---
-        © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
-        """,
-        unsafe_allow_html=True,
-    )
 
     st.sidebar.header('Data source')
     uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
@@ -169,10 +143,7 @@ def run_app():
         st.stop()
 
     df = pd.read_excel(uploaded_file)
-    # Make column names lowercase
     df.columns = [c.lower() for c in df.columns]
-
-    # minimal validation
     required_cols = ['idea', 'research group']
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
@@ -195,7 +166,7 @@ def run_app():
             cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
             G = build_similarity_graph(df['idea'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
             topics_matrix, topic_terms = topic_modeling(df['clean_text'].tolist(), n_topics=5)
-            df['topic'] = topics_matrix.argmax(axis=1)  # assign dominant topic per idea
+            df['topic'] = topics_matrix.argmax(axis=1)
             df['novelty'] = compute_novelty(embeddings)
             
             st.session_state.update({
@@ -211,6 +182,28 @@ def run_app():
     df = st.session_state['df']
     method = st.session_state['method']
 
+    # --- Filtering UI ---
+    st.sidebar.header("Filters")
+    cluster_options = sorted(df['cluster'].unique())
+    group_options = sorted(df['research group'].unique())
+    topic_options = sorted(df['topic'].unique())
+
+    sel_cluster = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
+    sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
+    sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
+    novelty_min, novelty_max = st.sidebar.slider("Novelty score", min_value=0.0, max_value=1.0, value=(0.0,1.0), step=0.01)
+
+    filtered_df = df[
+        (df['cluster'].isin(sel_cluster)) &
+        (df['research group'].isin(sel_group)) &
+        (df['topic'].isin(sel_topic)) &
+        (df['novelty'].between(novelty_min, novelty_max))
+    ]
+
+    st.header(f"Filtered Ideas ({len(filtered_df)})")
+    st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
+
+    # --- Overview ---
     st.header('Overview')
     st.write(f"Dimensionality reduction method used: {method}")
     c1, c2 = st.columns([2,1])
@@ -231,6 +224,7 @@ def run_app():
         )
         st.dataframe(cluster_summary)
 
+    # --- Network view ---
     st.markdown('---')
     st.header('Network view (similar ideas)')
     G_full = st.session_state['G']
@@ -246,95 +240,67 @@ def run_app():
             for i in range(n):
                 for j in range(i+1, n):
                     edges.append((i, j, sim[i,j]))
-
             edges_sorted = sorted(edges, key=lambda x: x[2], reverse=True)
             top_edges = edges_sorted[:20]
-            # Build subgraph
             G = nx.Graph()
             for i in range(n):
                 G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
             for i, j, s in top_edges:
                 G.add_edge(i, j, weight=s)
-
         else:
             G = G_full
-                
+
         pos = nx.spring_layout(G, k=0.5, seed=42)
-        # Edges
-        edge_x = []
-        edge_y = []
+        edge_x, edge_y = [], []
         for edge in G.edges():
             x0, y0 = pos[edge[0]]
             x1, y1 = pos[edge[1]]
-            edge_x += [x0, x1, None]  # None separates line segments
+            edge_x += [x0, x1, None]
             edge_y += [y0, y1, None]
 
-        edge_trace = go.Scatter(
-            x=edge_x, y=edge_y,
-            line=dict(width=1, color='#888'),
-            hoverinfo='none',
-            mode='lines'
-        )
+        edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#888'),
+                                hoverinfo='none', mode='lines')
 
-        # Nodes
-        node_x = []
-        node_y = []
-        node_color = []
-        node_text = []
-
+        node_x, node_y, node_color, node_text = [], [], [], []
         for n in G.nodes():
             x, y = pos[n]
             node_x.append(x)
             node_y.append(y)
             row = st.session_state['df'].iloc[n]
-
-    # Map cluster to numeric color (noise=-1 becomes 0)
-            cluster_val = 0 if row['cluster'] == -1 else row['cluster']
+            cluster_val = 0 if row['cluster']==-1 else row['cluster']
             node_color.append(cluster_val)
-
             hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
             node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
 
-        node_trace = go.Scatter(
-            x=node_x, y=node_y,
-            mode='markers',
-            marker=dict(
-                size=15,
-                color=node_color,
-                colorscale='Viridis',  # numeric values now compatible
-                line=dict(width=2, color='black'),
-                showscale=True,
-                colorbar=dict(title='Cluster')
-            ),
-            text=node_text,
-            hoverinfo='text'
-        )
+        node_trace = go.Scatter(x=node_x, y=node_y, mode='markers',
+                                marker=dict(size=15, color=node_color, colorscale='Viridis',
+                                            line=dict(width=2, color='black'), showscale=True,
+                                            colorbar=dict(title='Cluster')),
+                                text=node_text, hoverinfo='text')
 
         fig = go.Figure(data=[edge_trace, node_trace],
-                    layout=go.Layout(
-                        title='Similarity Network',
-                        showlegend=False,
-                        hovermode='closest',
-                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
-                    ))
-
+                        layout=go.Layout(title='Similarity Network', showlegend=False,
+                                         hovermode='closest',
+                                         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
         st.plotly_chart(fig, use_container_width=True)
 
+    # --- Cluster drilldown ---
     st.markdown('---')
     st.header('Cluster drilldown')
-    sel_cluster = st.selectbox('Select cluster', options=sorted(df['cluster'].unique().tolist()))
+    sel_cluster = st.selectbox('Select cluster', options=sorted(df['cluster'].unique()))
     sub = df[df['cluster']==sel_cluster]
     st.subheader(f'Cluster {sel_cluster} — {len(sub)} ideas')
     st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
     st.dataframe(sub[['idea','research group']])
 
+    # --- Word Cloud ---
     st.markdown('---')
     st.header('Word Cloud of All Ideas')
     all_text = " ".join(df['clean_text'].tolist())
     if all_text.strip():
         wc = WordCloud(width=800, height=400, background_color='white',
-                       colormap='viridis', stopwords=list(STOPWORDS)).generate(all_text)
+                       colormap='viridis', stopwords=STOPWORDS).generate(all_text)
         fig, ax = plt.subplots(figsize=(10,5))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
@@ -342,35 +308,7 @@ def run_app():
     else:
         st.info("No text available for word cloud generation.")
 
-    # Ensure we work on processed df
-df = st.session_state['df']
-
-# --- Filtering UI ---
-st.sidebar.header("Filters")
-
-# Only show filters if preprocessing was done
-if 'cluster' in df.columns and 'topic' in df.columns and 'novelty' in df.columns:
-    cluster_options = sorted(df['cluster'].unique())
-    group_options = sorted(df['research group'].unique())
-    topic_options = sorted(df['topic'].unique())
-
-    sel_cluster = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
-    sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
-    sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
-    novelty_min, novelty_max = st.sidebar.slider("Novelty score", min_value=0.0, max_value=1.0, value=(0.0,1.0), step=0.01)
-
-    filtered_df = df[
-        (df['cluster'].isin(sel_cluster)) &
-        (df['research group'].isin(sel_group)) &
-        (df['topic'].isin(sel_topic)) &
-        (df['novelty'].between(novelty_min, novelty_max))
-    ]
-
-    st.header(f"Filtered Ideas ({len(filtered_df)})")
-    st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
-else:
-    st.warning("Please upload and process the ideas file first.")
-
+    # --- Export ---
     st.markdown('---')
     st.header('Export & Utilities')
     tmp = df[['idea','research group']].copy()
