@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import re
+from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.feature_extraction.text import CountVectorizer
+import warnings
+warnings.filterwarnings("ignore")  
 
 # text
 from sentence_transformers import SentenceTransformer
@@ -103,6 +109,31 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
                 G.add_edge(i,j,weight=s)
     return G
 
+# --- Topic Modeling using simple TF-IDF + SVD ---
+@st.cache_data(ttl=3600)
+def topic_modeling(docs, n_topics=5):
+    vect = CountVectorizer(max_features=2000, stop_words=STOPWORDS)
+    X = vect.fit_transform(docs)
+    svd = TruncatedSVD(n_components=n_topics, random_state=42)
+    topics = svd.fit_transform(X)
+    topic_terms = {}
+    terms = np.array(vect.get_feature_names_out())
+    for i, comp in enumerate(svd.components_):
+        top_idx = comp.argsort()[::-1][:8]
+        topic_terms[f'topic_{i}'] = list(terms[top_idx])
+    return topics, topic_terms
+
+# --- Compute novelty score based on embedding distance ---
+@st.cache_data(ttl=3600)
+def compute_novelty(embeddings):
+    # novelty = mean distance to all other ideas
+    dists = euclidean_distances(embeddings)
+    np.fill_diagonal(dists, np.nan)  # ignore self-distance
+    novelty = np.nanmean(dists, axis=1)
+    # normalize between 0-1
+    novelty = MinMaxScaler().fit_transform(novelty.reshape(-1,1)).flatten()
+    return novelty
+
 # --- Streamlit App ---
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
@@ -149,14 +180,40 @@ def run_app():
             df['umap_y'] = emb2d[:,1] if emb2d.shape[1]>=2 else 0.0
             cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
             G = build_similarity_graph(df['idea'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
+            topics_matrix, topic_terms = topic_modeling(df['clean_text'].tolist(), n_topics=5)
+            df['topic'] = topics_matrix.argmax(axis=1)  # assign dominant topic per idea
+            df['novelty'] = compute_novelty(embeddings)
+            
             st.session_state.update({
                 'df': df,
                 'embeddings': embeddings,
                 'G': G,
                 'cluster_terms': cluster_terms,
                 'method': method,
+                'topic_terms': topic_terms,
                 'preprocessed': True
             })
+
+    # --- Filtering UI ---
+    st.sidebar.header("Filters")
+    cluster_options = sorted(df['cluster'].unique())
+    group_options = sorted(df['research group'].unique())
+    topic_options = sorted(df['topic'].unique())
+
+    sel_cluster = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
+    sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
+    sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
+    novelty_min, novelty_max = st.sidebar.slider("Novelty score", min_value=0.0, max_value=1.0, value=(0.0,1.0), step=0.01)
+
+    filtered_df = df[
+        (df['cluster'].isin(sel_cluster)) &
+        (df['research group'].isin(sel_group)) &
+        (df['topic'].isin(sel_topic)) &
+        (df['novelty'].between(novelty_min, novelty_max))
+    ]
+
+    st.header(f"Filtered Ideas ({len(filtered_df)})")
+    st.dataframe(filtered_df[['idea','research group','cluster','topic','novelty']])
 
     df = st.session_state['df']
     method = st.session_state['method']
