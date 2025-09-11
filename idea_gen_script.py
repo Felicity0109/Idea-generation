@@ -18,6 +18,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import umap
 from sklearn.decomposition import PCA
 import hdbscan
+from sklearn.cluster import KMeans
 
 # plotting
 import plotly.express as px
@@ -77,9 +78,19 @@ def reduce_embeddings_dynamic(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist
 
 @st.cache_data(ttl=3600)
 def cluster_embeddings(embeddings, min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE):
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom', cluster_selection_epsilon=0.1)
-    return clusterer.fit_predict(embeddings)
-
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, 
+                                metric='euclidean',
+                                cluster_selection_method='eom',
+                                cluster_selection_epsilon=0.1)
+    labels = clusterer.fit_predict(embeddings)
+    n_noise = np.sum(labels == -1)
+    if n_noise > len(labels) * 0.7:  # if >70% points are -1, fallback
+        n_clusters = min(5, len(embeddings)//2)  # up to 5 clusters
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+        labels = kmeans.fit_predict(embeddings)
+        print(f"⚠️ HDBSCAN failed, using KMeans with {n_clusters} clusters")    
+    return labels
+    
 @st.cache_data(ttl=3600)
 def extract_top_terms_per_cluster(docs, labels, top_n=8):
     df = pd.DataFrame({'doc': docs, 'label': labels})
