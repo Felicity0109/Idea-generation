@@ -142,6 +142,14 @@ def run_app():
         st.info('Upload a .xlsx file with columns: Idea, Research group')
         st.stop()
 
+    st.markdown(
+        """
+        ---
+        © 2025 R&T Idea Mining | Developed by Research and Technology - Fundamental Science Research
+        """,
+        unsafe_allow_html=True,
+    )
+
     df = pd.read_excel(uploaded_file)
     df.columns = [c.lower() for c in df.columns]
     required_cols = ['idea', 'research group']
