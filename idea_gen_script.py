@@ -145,7 +145,7 @@ def run_app():
     st.markdown(
         """
         ---
-        © 2025 R&T Idea Mining | Developed by Research and Technology - Fundamental Science Research
+        © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
         """,
         unsafe_allow_html=True,
     )
