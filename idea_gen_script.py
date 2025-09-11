@@ -35,11 +35,11 @@ STOPWORDS = set(ENGLISH_STOP_WORDS)
 
 # --- CONFIG ---
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-UMAP_N_NEIGHBORS = 15
-UMAP_MIN_DIST = 0.1
+UMAP_N_NEIGHBORS = 8
+UMAP_MIN_DIST = 0.05
 UMAP_N_COMPONENTS = 2
-HDBSCAN_MIN_CLUSTER_SIZE = 3
-SIMILARITY_THRESHOLD = 0.45
+HDBSCAN_MIN_CLUSTER_SIZE = 5
+SIMILARITY_THRESHOLD = 0.55
 
 # --- Utilities ---
 def clean_text(text):
@@ -77,7 +77,7 @@ def reduce_embeddings_dynamic(embeddings, n_neighbors=UMAP_N_NEIGHBORS, min_dist
 
 @st.cache_data(ttl=3600)
 def cluster_embeddings(embeddings, min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE):
-    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='cosine', cluster_selection_method='eom', cluster_selection_epsilon=0.1)
+    clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, metric='euclidean', cluster_selection_method='eom', cluster_selection_epsilon=0.1)
     return clusterer.fit_predict(embeddings)
 
 @st.cache_data(ttl=3600)
