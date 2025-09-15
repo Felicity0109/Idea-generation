@@ -144,7 +144,7 @@ def compute_novelty(embeddings):
     return novelty
 
 # --- Network plotting utility ---
-def plot_network(G, title='Similarity Network'):
+def plot_network(G, subset_df=None, title='Similarity Network'):
     if G.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
         return
@@ -161,13 +161,12 @@ def plot_network(G, title='Similarity Network'):
                             hoverinfo='none', mode='lines')
 
     node_x, node_y, node_color, node_text = [], [], [], []
-    if subset_df is None:
-        df_plot = st.session_state['df']
-    else:
-       df_plot = subset_df.reset_index(drop=True)
+
+    df_plot = subset_df.reset_index(drop=True) if subset_df is not None else st.session_state['df']
 
     clusters = sorted(df_plot['cluster'].unique())
     cluster_to_color = {c: i for i, c in enumerate(clusters)}
+
     for idx, row in df_plot.iterrows():
         x, y = pos[idx]
         node_x.append(x)
@@ -182,7 +181,7 @@ def plot_network(G, title='Similarity Network'):
         marker=dict(
             size=15,
             color=node_color,
-            colorscale='Viridis',  # now categorical based on cluster_to_color mapping
+            colorscale='Viridis',
             line=dict(width=2, color='black'),
             showscale=True,
             colorbar=dict(title='Cluster', tickvals=list(cluster_to_color.values()),
@@ -194,7 +193,7 @@ def plot_network(G, title='Similarity Network'):
 
     fig = go.Figure(data=[edge_trace, node_trace],
                     layout=go.Layout(
-                        title='Similarity Network',
+                        title=title,
                         showlegend=False,
                         hovermode='closest',
                         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
