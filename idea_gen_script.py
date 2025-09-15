@@ -147,13 +147,6 @@ def compute_novelty(embeddings):
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
     st.title('Sasol R&T Idea Mining')
-
-    st.sidebar.header('Data source')
-    uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
-    if uploaded_file is None:
-        st.info('Upload a .xlsx file with columns: Idea, Research group')
-        st.stop()
-
     st.markdown(
         """
         ---
@@ -161,6 +154,12 @@ def run_app():
         """,
         unsafe_allow_html=True,
     )
+
+    st.sidebar.header('Data source')
+    uploaded_file = st.sidebar.file_uploader('Upload ideas Excel (.xlsx)', type=['xlsx'])
+    if uploaded_file is None:
+        st.info('Upload a .xlsx file with columns: Idea, Research group')
+        st.stop()
 
     df = pd.read_excel(uploaded_file)
     df.columns = [c.lower() for c in df.columns]
