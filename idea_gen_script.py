@@ -255,80 +255,84 @@ def run_app():
     st.markdown('---')
     st.header('Network view (similar ideas)')
     G_full = st.session_state['G']
-    
+
     if G_full.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
     else:
         zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
-        by_cluster = st.checkbox('Show network by cluster only', value=False)
-        
+        cluster_focus = st.checkbox('Show network by cluster', value=False)
+
         if zoom_top_n:
+        # --- Top 20 most similar ideas ---
             sim = cosine_similarity(st.session_state['embeddings'])
             n = len(sim)
-            edges = []
-            for i in range(n):
-                for j in range(i+1, n):
-                    edges.append((i, j, sim[i,j]))
-            edges_sorted = sorted(edges, key=lambda x: x[2], reverse=True)
-            top_edges = edges_sorted[:20]
+            edges = [(i, j, sim[i,j]) for i in range(n) for j in range(i+1, n)]
+            top_edges = sorted(edges, key=lambda x: x[2], reverse=True)[:20]
+
             G = nx.Graph()
             for i in range(n):
                 G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
             for i, j, s in top_edges:
                 G.add_edge(i, j, weight=s)
 
-        elif by_cluster:
-            sim = cosine_similarity(st.session_state['embeddings'])
-            n = len(sim)
-            G = nx.Graph()
-            for i in range(n):
-                G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
-        # Only add edges where both nodes belong to the same cluster
-            for i in range(n):
-                cluster_i = st.session_state['df'].iloc[i]['cluster']
-                for j in range(i+1, n):
-                    cluster_j = st.session_state['df'].iloc[j]['cluster']
-                    s = sim[i,j]
-                    if cluster_i == cluster_j and np.isfinite(s) and s >= st.session_state.get('SIMILARITY_THRESHOLD', 0.3):
-                        G.add_edge(i, j, weight=s)
-        
+        # --- Plot ---
+            def plot_network(G):
+                pos = nx.spring_layout(G, k=0.5, seed=42)
+                edge_x, edge_y = [], []
+                for edge in G.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x += [x0, x1, None]
+                    edge_y += [y0, y1, None]
+                edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#888'),
+                                    hoverinfo='none', mode='lines')
+                node_x, node_y, node_color, node_text = [], [], [], []
+                for n in G.nodes():
+                    x, y = pos[n]
+                    node_x.append(x)
+                    node_y.append(y)
+                    row = st.session_state['df'].iloc[n]
+                    cluster_val = 0 if row['cluster']==-1 else row['cluster']
+                    node_color.append(cluster_val)
+                    hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
+                    node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
+                node_trace = go.Scatter(x=node_x, y=node_y, mode='markers',
+                                    marker=dict(size=15, color=node_color, colorscale='Viridis',
+                                                line=dict(width=2, color='black'), showscale=True,
+                                                colorbar=dict(title='Cluster')),
+                                    text=node_text, hoverinfo='text')
+                fig = go.Figure(data=[edge_trace, node_trace],
+                            layout=go.Layout(title='Similarity Network', showlegend=False,
+                                             hovermode='closest',
+                                             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+                st.plotly_chart(fig, use_container_width=True)
+
+            plot_network(G)
+
+        elif cluster_focus:
+        # --- Select which cluster ---
+            clusters = sorted(df['cluster'].unique())
+            sel_cluster = st.selectbox('Select cluster to display', options=clusters)
+            sub_df = st.session_state['df'][st.session_state['df']['cluster']==sel_cluster]
+
+            if not sub_df.empty:
+                sim = cosine_similarity(st.session_state['embeddings'][sub_df.index])
+                n = len(sim)
+                G_cluster = nx.Graph()
+                for i in range(n):
+                    G_cluster.add_node(i, label=sub_df.iloc[i]['idea'])
+                for i in range(n):
+                    for j in range(i+1, n):
+                        s = sim[i,j]
+                        if np.isfinite(s) and s >= st.session_state.get('SIMILARITY_THRESHOLD', 0.3):
+                            G_cluster.add_edge(i, j, weight=s)
+                plot_network(G_cluster)
+
         else:
-            G = G_full
+        # --- Full dataset network ---
+            plot_network(G_full)
 
-        pos = nx.spring_layout(G, k=0.5, seed=42)
-        edge_x, edge_y = [], []
-        for edge in G.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_x += [x0, x1, None]
-            edge_y += [y0, y1, None]
-
-        edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#888'),
-                                hoverinfo='none', mode='lines')
-
-        node_x, node_y, node_color, node_text = [], [], [], []
-        for n in G.nodes():
-            x, y = pos[n]
-            node_x.append(x)
-            node_y.append(y)
-            row = st.session_state['df'].iloc[n]
-            cluster_val = 0 if row['cluster']==-1 else row['cluster']
-            node_color.append(cluster_val)
-            hover_preview = (row['idea'][:200]+'...') if len(str(row['idea']))>200 else row['idea']
-            node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
-
-        node_trace = go.Scatter(x=node_x, y=node_y, mode='markers',
-                                marker=dict(size=15, color=node_color, colorscale='Viridis',
-                                            line=dict(width=2, color='black'), showscale=True,
-                                            colorbar=dict(title='Cluster')),
-                                text=node_text, hoverinfo='text')
-
-        fig = go.Figure(data=[edge_trace, node_trace],
-                        layout=go.Layout(title='Similarity Network', showlegend=False,
-                                         hovermode='closest',
-                                         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
-        st.plotly_chart(fig, use_container_width=True)
 
     # --- Cluster drilldown ---
     st.markdown('---')
