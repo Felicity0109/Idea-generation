@@ -332,7 +332,7 @@ def run_app():
     elif cluster_focus:
         clusters = sorted(df['cluster'].unique())
         sel_cluster_net = st.selectbox('Select cluster to display', options=clusters)
-        subset_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster]
+        subset_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster_net]
 
         if not subset_df.empty:
             sim = cosine_similarity(st.session_state['embeddings'][subset_df.index])
