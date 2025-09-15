@@ -333,20 +333,20 @@ def run_app():
     elif cluster_focus:
         clusters = sorted(df['cluster'].unique())
         sel_cluster_net = st.selectbox('Select cluster to display', options=clusters)
-        sub_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster]
+        subset_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster]
 
-        if not sub_df.empty:
-            sim = cosine_similarity(st.session_state['embeddings'][sub_df.index])
+        if not subset_df.empty:
+            sim = cosine_similarity(st.session_state['embeddings'][subset_df.index])
             n = len(sim)
             G_cluster = nx.Graph()
             for i in range(n):
-                G_cluster.add_node(i, label=sub_df.iloc[i]['idea'])
+                G_cluster.add_node(i, label=subset_df.iloc[i]['idea'])
             for i in range(n):
                 for j in range(i+1, n):
                     s = sim[i,j]
                     if np.isfinite(s) and s >= SIMILARITY_THRESHOLD:
                         G_cluster.add_edge(i, j, weight=s)
-            plot_network(G_cluster, subset_df=sub_df)
+            plot_network(G_cluster, subset_df=subset_df)
     else:
         plot_network(G_full)
 
