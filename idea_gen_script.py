@@ -36,11 +36,11 @@ STOPWORDS = set(ENGLISH_STOP_WORDS)
 
 # --- CONFIG ---
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-UMAP_N_NEIGHBORS = 9
-UMAP_MIN_DIST = 0.05
+UMAP_N_NEIGHBORS = 5
+UMAP_MIN_DIST = 0.01
 UMAP_N_COMPONENTS = 2
-HDBSCAN_MIN_CLUSTER_SIZE = 3
-SIMILARITY_THRESHOLD = 0.3
+HDBSCAN_MIN_CLUSTER_SIZE = 5
+SIMILARITY_THRESHOLD = 0.6
 
 # --- Utilities ---
 def clean_text(text):
@@ -123,7 +123,7 @@ def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
 
 @st.cache_data(ttl=3600)
 def topic_modeling(docs, n_topics=5):
-    vect = CountVectorizer(max_features=2000, stop_words=list(STOPWORDS))
+    vect = CountVectorizer(max_features=3000, stop_words=list(STOPWORDS))
     X = vect.fit_transform(docs)
     svd = TruncatedSVD(n_components=n_topics, random_state=42)
     topics = svd.fit_transform(X)
