@@ -308,27 +308,32 @@ def run_app():
 
     # --- Similarity Network ---
     st.markdown('---')
-    st.header('Network view (similar ideas)')
+    st.header('Network view of simalar ideas across the dataset')
     G_full = st.session_state['G']
 
-    zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
-    cluster_focus = st.checkbox('Show network by cluster', value=False)
+    if G_full.number_of_nodes() == 0:
+        st.info('No nodes found for the similarity graph.')
+    else:
+        zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
+        cluster_focus = st.checkbox('Show network by cluster', value=False)
 
     if zoom_top_n:
         sim = cosine_similarity(st.session_state['embeddings'])
         n = len(sim)
         edges = [(i, j, sim[i,j]) for i in range(n) for j in range(i+1, n)]
         top_edges = sorted(edges, key=lambda x: x[2], reverse=True)[:20]
-        G_top = nx.Graph()
+        
+        G = nx.Graph()
         for i in range(n):
-            G_top.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
+            G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
         for i, j, s in top_edges:
-            G_top.add_edge(i, j, weight=s)
-        plot_network(G_top, title='Top 20 Most Similar Ideas')
+            G.add_edge(i, j, weight=s)
+        plot_network(G)
+        
     elif cluster_focus:
         clusters = sorted(df['cluster'].unique())
         sel_cluster_net = st.selectbox('Select cluster to display', options=clusters)
-        sub_df = df[df['cluster']==sel_cluster_net]
+        sub_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster]
 
         if not sub_df.empty:
             sim = cosine_similarity(st.session_state['embeddings'][sub_df.index])
@@ -341,9 +346,9 @@ def run_app():
                     s = sim[i,j]
                     if np.isfinite(s) and s >= SIMILARITY_THRESHOLD:
                         G_cluster.add_edge(i, j, weight=s)
-            plot_network(G_cluster, title=f'Cluster {sel_cluster_net} Network')
+            plot_network(G_cluster, subset_df=sub_df)
     else:
-        plot_network(G_full, title='Full Similarity Network')
+        plot_network(G_full)
 
     # --- Cluster drilldown + word cloud ---
     st.markdown('---')
