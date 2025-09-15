@@ -260,6 +260,8 @@ def run_app():
         st.info('No nodes found for the similarity graph.')
     else:
         zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
+        by_cluster = st.checkbox('Show network by cluster only', value=False)
+        
         if zoom_top_n:
             sim = cosine_similarity(st.session_state['embeddings'])
             n = len(sim)
@@ -274,6 +276,22 @@ def run_app():
                 G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
             for i, j, s in top_edges:
                 G.add_edge(i, j, weight=s)
+
+        elif by_cluster:
+            sim = cosine_similarity(st.session_state['embeddings'])
+            n = len(sim)
+            G = nx.Graph()
+            for i in range(n):
+                G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
+        # Only add edges where both nodes belong to the same cluster
+            for i in range(n):
+                cluster_i = st.session_state['df'].iloc[i]['cluster']
+                for j in range(i+1, n):
+                    cluster_j = st.session_state['df'].iloc[j]['cluster']
+                    s = sim[i,j]
+                    if cluster_i == cluster_j and np.isfinite(s) and s >= st.session_state.get('SIMILARITY_THRESHOLD', 0.3):
+                        G.add_edge(i, j, weight=s)
+        
         else:
             G = G_full
 
