@@ -161,27 +161,45 @@ def plot_network(G, title='Similarity Network'):
                             hoverinfo='none', mode='lines')
 
     node_x, node_y, node_color, node_text = [], [], [], []
-    for n in G.nodes():
-        x, y = pos[n]
+    if subset_df is None:
+        df_plot = st.session_state['df']
+    else:
+       df_plot = subset_df.reset_index(drop=True)
+
+    clusters = sorted(df_plot['cluster'].unique())
+    cluster_to_color = {c: i for i, c in enumerate(clusters)}
+    for idx, row in df_plot.iterrows():
+        x, y = pos[idx]
         node_x.append(x)
         node_y.append(y)
-        row = st.session_state['df'].iloc[n]
-        cluster_val = 0 if row['cluster'] == -1 else row['cluster']
+        cluster_val = cluster_to_color[row['cluster']]
         node_color.append(cluster_val)
         hover_preview = (row['idea'][:200] + '...') if len(str(row['idea'])) > 200 else row['idea']
         node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
 
-    node_trace = go.Scatter(x=node_x, y=node_y, mode='markers',
-                            marker=dict(size=15, color=node_color, colorscale='Viridis',
-                                        line=dict(width=2, color='black'), showscale=True,
-                                        colorbar=dict(title='Cluster')),
-                            text=node_text, hoverinfo='text')
+    node_trace = go.Scatter(
+        x=node_x, y=node_y, mode='markers',
+        marker=dict(
+            size=15,
+            color=node_color,
+            colorscale='Viridis',  # now categorical based on cluster_to_color mapping
+            line=dict(width=2, color='black'),
+            showscale=True,
+            colorbar=dict(title='Cluster', tickvals=list(cluster_to_color.values()),
+                          ticktext=[str(c) for c in clusters])
+        ),
+        text=node_text,
+        hoverinfo='text'
+    )
 
     fig = go.Figure(data=[edge_trace, node_trace],
-                    layout=go.Layout(title=title, showlegend=False,
-                                     hovermode='closest',
-                                     xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                     yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)))
+                    layout=go.Layout(
+                        title='Similarity Network',
+                        showlegend=False,
+                        hovermode='closest',
+                        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                    ))
     st.plotly_chart(fig, use_container_width=True)
 
 # --- Streamlit App ---
