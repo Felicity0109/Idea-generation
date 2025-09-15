@@ -50,7 +50,8 @@ def clean_text(text):
     txt = re.sub(r"https?://\S+|www\.\S+", " ", txt)
     txt = re.sub(r"[^a-z0-9\s]", " ", txt)
     txt = re.sub(r"\s+", " ", txt).strip()
-    tokens = [t for t in txt.split() if t not in STOPWORDS and len(t) > 1]
+    tokens = [t for t in txt.split() 
+        if t not in STOPWORDS and t != "sasol" and len(t) > 1]
     return " ".join(tokens)
 
 @st.cache_resource
@@ -316,11 +317,22 @@ def run_app():
     st.markdown('---')
     st.header('Cluster drilldown')
     sel_cluster = st.selectbox('Select cluster', options=sorted(df['cluster'].unique()))
-    sub = df[df['cluster']==sel_cluster]
+    sub = df[df['cluster'] == sel_cluster]
+    
     st.subheader(f'Cluster {sel_cluster} — {len(sub)} ideas')
-    st.write('Top terms:', st.session_state['cluster_terms'].get(f'cluster_{sel_cluster}', st.session_state['cluster_terms'].get('noise', [])))
     st.dataframe(sub[['idea','research group']])
 
+    if not sub.empty:
+        text = " ".join(sub['idea'].astype(str).tolist())
+        wordcloud = WordCloud(width=800, height=400,
+                          background_color='white',
+                          colormap='viridis').generate(text)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.imshow(wordcloud, interpolation='bilinear')
+        ax.axis('off')
+        st.pyplot(fig)
+        
+    
     # --- Word Cloud ---
     st.markdown('---')
     st.header('Word Cloud of All Ideas')
