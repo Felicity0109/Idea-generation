@@ -487,11 +487,20 @@ def run_app():
     
 # --- Export ---
     st.markdown('---')
-    st.header('Export & Utilities')
-    tmp = df[['idea','research group']].copy()
-    csv = tmp.to_csv(index=False).encode('utf-8')
-    st.download_button('Download processed CSV', data=csv, file_name='ideas_processed.csv', mime='text/csv')
+    st.header('Export')
+    st.write("Download ideas as CSV file. Select filters on the sidebar (Cluster, Research group, Topic, Novelty) to narrow down the ideas before downloading.")
 
+    if not filtered_df.empty:
+        columns_to_export = ['idea','research group','cluster','topic','novelty','clean_text']
+        csv_filtered = filtered_df[columns_to_export].to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label='Download filtered CSV',
+            data=csv_filtered,
+            file_name='ideas_filtered.csv',
+            mime='text/csv'
+        )
+    else:
+        st.info("No ideas match the current filters to download.")
 
 if __name__ == '__main__':
     run_app()
