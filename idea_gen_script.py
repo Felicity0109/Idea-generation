@@ -345,8 +345,10 @@ def run_app():
     st.header('Overview')
     st.write(f"Dimensionality reduction method used: {method}")
     c1, c2 = st.columns([2,1])
+    
     with st.expander("Click to view idea projection (UMAP/PCA) and cluster summary"):
-    c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([2,1])
+    
     with c1:
         st.subheader(f'{method} projection of ideas')
         fig = px.scatter(
