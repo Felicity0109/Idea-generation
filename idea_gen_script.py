@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.decomposition import TruncatedSVD
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.feature_extraction.text import CountVectorizer
+from collections import Counter
 import warnings
 warnings.filterwarnings("ignore")  
 
@@ -160,28 +161,33 @@ def plot_network(G, subset_df=None, title='Similarity Network'):
         return
 
     pos = nx.spring_layout(G, k=0.5, seed=42)
+    
     edge_x, edge_y = [], []
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
+    
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
         edge_x += [x0, x1, None]
         edge_y += [y0, y1, None]
 
     edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=1, color='#888'),
                             hoverinfo='none', mode='lines')
+    df_plot = subset_df if subset_df is not None else st.session_state['df']
+    displayed_indices = [n for n in G.nodes() if n in df_plot.index]
+    clusters = sorted(df_plot.loc[displayed_indices, 'cluster'].unique())
+    cluster_to_color = {c: i for i, c in enumerate(clusters)}
 
     node_x, node_y, node_color, node_text = [], [], [], []
-
-    df_plot = subset_df.reset_index(drop=True) if subset_df is not None else st.session_state['df']
 
     clusters = sorted(df_plot['cluster'].unique())
     cluster_to_color = {c: i for i, c in enumerate(clusters)}
 
-    for idx, row in df_plot.iterrows():
-        x, y = pos[idx]
+    for node in displayed_indices:
+        row = df_plot.loc[node]
+        x, y = pos[node]
         node_x.append(x)
         node_y.append(y)
-        cluster_val = cluster_to_color[row['cluster']]
+        cluster_val = cluster_to_color.get(row['cluster'], 0)
         node_color.append(cluster_val)
         hover_preview = (row['idea'][:200] + '...') if len(str(row['idea'])) > 200 else row['idea']
         node_text.append(f"{row['idea']} - {row['research group']}\n{hover_preview}")
@@ -247,7 +253,7 @@ def run_app():
             df['umap_x'] = emb2d[:,0] if emb2d.shape[1]>=2 else 0.0
             df['umap_y'] = emb2d[:,1] if emb2d.shape[1]>=2 else 0.0
             cluster_terms = extract_top_terms_per_cluster(df['clean_text'].tolist(), df['cluster'].tolist(), top_n=8)
-            G = build_similarity_graph(df['idea'].tolist(), embeddings, threshold=SIMILARITY_THRESHOLD)
+            G = build_similarity_graph(embeddings, top_k=5, min_sim=0.6)  # tune top_k/min_sim as needed
             topics_matrix, topic_terms = topic_modeling(df['clean_text'].tolist(), n_topics=5)
             df['topic'] = topics_matrix.argmax(axis=1)
             df['novelty'] = compute_novelty(embeddings)
@@ -369,7 +375,7 @@ def run_app():
     st.dataframe(sub[['idea', 'research group']])
 
 # --- Word Network + Frequency Plot ---
-    st.subheader("Word Network & Frequencies")
+    st.subheader("Word Network & Frequency plots")
 
     if not sub.empty:
     # prepare text
@@ -399,6 +405,19 @@ def run_app():
     # frequency plot
         freq_df = pd.DataFrame(freq_dist.most_common(20), columns=["Word", "Frequency"])
         st.bar_chart(freq_df.set_index("Word"))
+        
+    # --- Cluster-level Word Cloud ---
+        st.subheader("Word Cloud (Cluster)")
+        wc = WordCloud(
+            width=800, height=400,
+            background_color='white',
+            colormap='viridis',
+            stopwords=STOPWORDS
+        ).generate(text)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.imshow(wc, interpolation='bilinear')
+        ax.axis('off')
+        st.pyplot(fig)
 
 # --- Word Cloud for all ideas ---
     st.markdown('---')
