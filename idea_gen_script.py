@@ -376,50 +376,18 @@ def run_app():
     # --- Similarity Network ---
     st.markdown('---')
     st.header('Network view of simalar ideas across the dataset')
-    st.info("Nodes represent ideas, edges indicate strong semantic similarity. "
-        "Hover over nodes to see idea text and research group. "
-        "Top 20 filter shows the strongest connections.")
+    st.info(
+    "Nodes represent ideas, edges indicate strong semantic similarity. "
+    "Hover over nodes to see idea text and research group."
+     )
+
     G_full = st.session_state['G']
 
     if G_full.number_of_nodes() == 0:
         st.info('No nodes found for the similarity graph.')
     else:
-        zoom_top_n = st.checkbox('Focus on top 20 most similar ideas', value=False)
-        cluster_focus = st.checkbox('Show network by cluster', value=False)
-
-    if zoom_top_n:
-        sim = cosine_similarity(st.session_state['embeddings'])
-        n = len(sim)
-        edges = [(i, j, sim[i,j]) for i in range(n) for j in range(i+1, n)]
-        top_edges = sorted(edges, key=lambda x: x[2], reverse=True)[:20]
-        
-        G = nx.Graph()
-        for i in range(n):
-            G.add_node(i, label=st.session_state['df'].iloc[i]['idea'])
-        for i, j, s in top_edges:
-            G.add_edge(i, j, weight=s)
-        plot_network(G)
-        
-    elif cluster_focus:
-        clusters = sorted(df['cluster'].unique())
-        sel_cluster_net = st.selectbox('Select cluster to display', options=clusters)
-        subset_df = st.session_state['df'][st.session_state['df']['cluster'] == sel_cluster_net]
-
-        if not subset_df.empty:
-            sim = cosine_similarity(st.session_state['embeddings'][subset_df.index])
-            n = len(sim)
-            G_cluster = nx.Graph()
-            for i in range(n):
-                G_cluster.add_node(i, label=subset_df.iloc[i]['idea'])
-            for i in range(n):
-                for j in range(i+1, n):
-                    s = sim[i,j]
-                    if np.isfinite(s) and s >= SIMILARITY_THRESHOLD:
-                        G_cluster.add_edge(i, j, weight=s)
-            plot_network(G_cluster, subset_df=subset_df)
-    else:
         plot_network(G_full)
-
+        
     # --- Cluster drilldown + word cloud ---
     st.markdown('---')
     st.header('Cluster drilldown')
