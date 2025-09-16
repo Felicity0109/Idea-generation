@@ -220,9 +220,9 @@ def plot_network(G, subset_df=None, title='Similarity Network'):
 # --- Streamlit App ---
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
-    st.title('Sasol R&T Idea Mining')
+    st.title('Sasol R&T Idea Exploration Dashboard')
     st.markdown('---')
-    st.header("How the Idea Mining App Works")
+    st.header("How the it Works")
 
     st.markdown("""
     **Step-by-step workflow of idea analysis:**
