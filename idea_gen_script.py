@@ -302,8 +302,10 @@ def run_app():
                 'topic_terms': topic_terms,
                 'preprocessed': True
             })
-    relabelled_topics = {f'Idea Theme {i+1}': words for i, (topic, words) in enumerate(topic_terms.items())}
+    relabelled_topics = {f'Idea Theme {i+1}': words 
+                     for i, (topic, words) in enumerate(st.session_state['topic_terms'].items())}
     st.session_state['topic_terms'] = relabelled_topics
+    
     df = st.session_state['df']
     method = st.session_state['method']
 
