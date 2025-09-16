@@ -280,6 +280,11 @@ def run_app():
     sel_cluster_filter = st.sidebar.multiselect("Cluster", options=cluster_options, default=cluster_options)
     sel_group = st.sidebar.multiselect("Research group", options=group_options, default=group_options)
     sel_topic = st.sidebar.multiselect("Topic", options=topic_options, default=topic_options)
+
+    st.sidebar.markdown("""
+    **Novelty Score:**  
+    Measures how unique an idea is compared to all others, with higher values indicating more distinctive ideas.
+    """)
     novelty_min, novelty_max = st.sidebar.slider("Novelty score", 0.0, 1.0, (0.0,1.0), 0.01)
 
     filtered_df = df[
