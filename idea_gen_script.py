@@ -221,6 +221,41 @@ def plot_network(G, subset_df=None, title='Similarity Network'):
 def run_app():
     st.set_page_config(layout='wide', page_title='Sasol R&T Idea Mining')
     st.title('Sasol R&T Idea Mining')
+    st.markdown('---')
+    st.header("How the Idea Mining App Works")
+
+    st.markdown("""
+    **Step-by-step workflow of idea analysis:**
+
+    :open_file_folder: **1. Upload Ideas**  
+    Upload your ideas in an Excel (.xlsx) file with columns `Idea` and `Research group`.
+
+    :gear: **2. Text Preprocessing**  
+    Ideas are cleaned, lowercased, and stopwords removed to prepare for analysis.
+
+    :bar_chart: **3. Embedding & Clustering**  
+    Each idea is converted into a numerical vector (embedding).  
+    HDBSCAN or KMeans groups similar ideas into clusters.
+
+    :mag_right: **4. Idea Similarity Network**  
+    Shows how ideas are semantically connected.  
+    Options:  
+    - Top 20 most similar ideas  
+    - Network per cluster
+
+    :cloud: **5. Cluster-level Word Clouds & Frequency Plots**  
+    Highlights main terms and their frequencies within each cluster.
+
+    :bulb: **6. Topic Modeling**  
+    Identifies overarching **“idea themes”** for easier interpretation.
+
+    :star2: **7. Novelty Score**  
+    Highlights unique or unusual ideas for attention.
+
+    **Tip:** Explore clusters, networks, and word clouds together — networks show relationships, clusters summarize themes, and novelty scores highlight standout ideas.
+    """)
+
+    
     st.markdown("""
         ---
         © 2025 R&T Idea Mining | Developed by Sasol Research and Technology - Fundamental Science Research
@@ -267,7 +302,8 @@ def run_app():
                 'topic_terms': topic_terms,
                 'preprocessed': True
             })
-
+    relabelled_topics = {f'Idea Theme {i+1}': words for i, (topic, words) in enumerate(topic_terms.items())}
+    st.session_state['topic_terms'] = relabelled_topics
     df = st.session_state['df']
     method = st.session_state['method']
 
@@ -299,9 +335,9 @@ def run_app():
 
     # --- Top Words per Topic ---
     st.markdown('---')
-    st.header('Top Words per Topic')
-    for topic, words in st.session_state['topic_terms'].items():
-        st.subheader(f"{topic}")
+    st.header('Top Words per Idea Theme')
+    for theme, words in st.session_state['topic_terms'].items():
+        st.subheader(f"{theme}")
         st.write(", ".join(words))
 
     # --- Overview ---
@@ -309,11 +345,14 @@ def run_app():
     st.header('Overview')
     st.write(f"Dimensionality reduction method used: {method}")
     c1, c2 = st.columns([2,1])
-    with c1:
-        st.subheader(f'{method} projection of ideas')
-        fig = px.scatter(df, x='umap_x', y='umap_y', color=df['cluster'].astype(str),
-                         hover_data=['idea','research group'],
-                         title=f'{method}: ideas colored by cluster')
+    with st.expander("Click to view idea projection (UMAP/PCA)"):
+        fig = px.scatter(
+            df, 
+            x='umap_x', y='umap_y', 
+            color=df['cluster'].astype(str),
+            hover_data=['idea','research group'],
+            title=f'{method}: ideas colored by cluster'
+        )
         st.plotly_chart(fig, use_container_width=True)
     with c2:
         st.subheader('Cluster summary')
@@ -329,6 +368,9 @@ def run_app():
     # --- Similarity Network ---
     st.markdown('---')
     st.header('Network view of simalar ideas across the dataset')
+    st.info("Nodes represent ideas, edges indicate strong semantic similarity. "
+        "Hover over nodes to see idea text and research group. "
+        "Top 20 filter shows the strongest connections.")
     G_full = st.session_state['G']
 
     if G_full.number_of_nodes() == 0:
@@ -392,7 +434,7 @@ def run_app():
         top_words = [w for w, _ in freq_dist.most_common(30)]
 
     # TF-IDF + cosine similarity for word network
-        vecs = TfidfVectorizer(vocabulary=top_words, stop_words=STOPWORDS).fit_transform(sub['idea'])
+        vecs = TfidfVectorizer(vocabulary=top_words, stop_words=list(STOPWORDS)).fit_transform(sub['idea'])
         cos_sim = cosine_similarity(vecs.T)
 
         G = nx.Graph()
