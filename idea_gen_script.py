@@ -107,20 +107,30 @@ def extract_top_terms_per_cluster(docs, labels, top_n=8):
         results[label_name] = list(terms[top_idx]) if len(terms) > 0 else []
     return results
 
-def build_similarity_graph(docs, embeddings, threshold=SIMILARITY_THRESHOLD):
-    if len(docs) == 0:
-        return nx.Graph()
-    sim = cosine_similarity(embeddings)
+def build_similarity_graph(embeddings, top_k=5, min_sim=0.6):
+    """
+    Build similarity graph with hybrid logic:
+    - keep top_k most similar neighbors per node
+    - only add edges if similarity >= min_sim
+    """
+    sim_matrix = cosine_similarity(embeddings)
+    n = len(embeddings)
     G = nx.Graph()
-    for i, doc in enumerate(docs):
-        G.add_node(i, label=doc)
-    n = len(docs)
     for i in range(n):
-        for j in range(i+1, n):
-            s = float(sim[i,j])
-            if np.isfinite(s) and s >= threshold:
-                G.add_edge(i,j,weight=s)
+        sims = [(j, sim_matrix[i, j]) for j in range(n) if i != j]
+        sims = sorted(sims, key=lambda x: x[1], reverse=True)[:top_k]
+        for j, sim in sims:
+            if sim >= min_sim:
+                G.add_edge(i, j, weight=sim)
     return G
+
+def subgraph_for_cluster(G, cluster_labels, cluster_id):
+    """
+    Extract subgraph for nodes belonging to a specific cluster.
+    (Keeps node indices aligned with the global DataFrame.)
+    """
+    nodes_in_cluster = [i for i, c in enumerate(cluster_labels) if c == cluster_id]
+    return G.subgraph(nodes_in_cluster).copy()
 
 @st.cache_data(ttl=3600)
 def topic_modeling(docs, n_topics=5):
@@ -352,36 +362,59 @@ def run_app():
     # --- Cluster drilldown + word cloud ---
     st.markdown('---')
     st.header('Cluster drilldown')
+
     sel_cluster_wc = st.selectbox('Select cluster', options=sorted(df['cluster'].unique()), key='cluster_wc')
-    sub = df[df['cluster']==sel_cluster_wc]
+    sub = df[df['cluster'] == sel_cluster_wc]
     st.subheader(f'Cluster {sel_cluster_wc} — {len(sub)} ideas')
-    st.dataframe(sub[['idea','research group']])
+    st.dataframe(sub[['idea', 'research group']])
+
+# --- Word Network + Frequency Plot ---
+    st.subheader("Word Network & Frequencies")
 
     if not sub.empty:
+    # prepare text
         text = " ".join(sub['idea'].astype(str).tolist())
-        wordcloud = WordCloud(width=800, height=400,
-                              background_color='white',
-                              colormap='viridis').generate(text)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.imshow(wordcloud, interpolation='bilinear')
-        ax.axis('off')
+        words = text.lower().split()
+
+    # frequency distribution
+        freq_dist = Counter(words)
+        top_words = [w for w, _ in freq_dist.most_common(30)]
+
+    # TF-IDF + cosine similarity for word network
+        vecs = TfidfVectorizer(vocabulary=top_words).fit_transform(sub['idea'])
+        cos_sim = cosine_similarity(vecs.T)
+
+        G = nx.Graph()
+        for i, w1 in enumerate(top_words):
+            for j, w2 in enumerate(top_words):
+                if i < j and cos_sim[i, j] > 0.1:  # edge threshold
+                    G.add_edge(w1, w2, weight=cos_sim[i, j])
+
+    # plot network
+        fig, ax = plt.subplots(figsize=(8, 6))
+        pos = nx.spring_layout(G, k=0.5, seed=42)
+        nx.draw(G, pos, with_labels=True, node_size=500, font_size=10, ax=ax)
         st.pyplot(fig)
 
-    # --- Word Cloud for all ideas ---
+    # frequency plot
+        freq_df = pd.DataFrame(freq_dist.most_common(20), columns=["Word", "Frequency"])
+        st.bar_chart(freq_df.set_index("Word"))
+
+# --- Word Cloud for all ideas ---
     st.markdown('---')
     st.header('Word Cloud of All Ideas')
-    all_text = " ".join(df['clean_text'].tolist())
+    all_text = " ".join(df['clean_text'].astype(str).tolist())
     if all_text.strip():
         wc = WordCloud(width=800, height=400, background_color='white',
-                       colormap='viridis', stopwords=STOPWORDS).generate(all_text)
-        fig, ax = plt.subplots(figsize=(10,5))
+                    colormap='viridis', stopwords=STOPWORDS).generate(all_text)
+        fig, ax = plt.subplots(figsize=(10, 5))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
         st.pyplot(fig)
     else:
         st.info("No text available for word cloud generation.")
-
-    # --- Export ---
+    
+# --- Export ---
     st.markdown('---')
     st.header('Export & Utilities')
     tmp = df[['idea','research group']].copy()
