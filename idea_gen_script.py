@@ -380,14 +380,14 @@ def run_app():
     if not sub.empty:
     # prepare text
         text = " ".join(sub['idea'].astype(str).tolist())
-        words = text.lower().split()
+        words = [w for w in text.lower().split() if w not in STOPWORDS]
 
     # frequency distribution
         freq_dist = Counter(words)
         top_words = [w for w, _ in freq_dist.most_common(30)]
 
     # TF-IDF + cosine similarity for word network
-        vecs = TfidfVectorizer(vocabulary=top_words).fit_transform(sub['idea'])
+        vecs = TfidfVectorizer(vocabulary=top_words, stop_words=STOPWORDS).fit_transform(sub['idea'])
         cos_sim = cosine_similarity(vecs.T)
 
         G = nx.Graph()
