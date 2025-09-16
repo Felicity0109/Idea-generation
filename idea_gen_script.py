@@ -345,7 +345,10 @@ def run_app():
     st.header('Overview')
     st.write(f"Dimensionality reduction method used: {method}")
     c1, c2 = st.columns([2,1])
-    with st.expander("Click to view idea projection (UMAP/PCA)"):
+    with st.expander("Click to view idea projection (UMAP/PCA) and cluster summary"):
+    c1, c2 = st.columns([2,1])
+    with c1:
+        st.subheader(f'{method} projection of ideas')
         fig = px.scatter(
             df, 
             x='umap_x', y='umap_y', 
@@ -354,6 +357,7 @@ def run_app():
             title=f'{method}: ideas colored by cluster'
         )
         st.plotly_chart(fig, use_container_width=True)
+
     with c2:
         st.subheader('Cluster summary')
         cluster_summary = df.groupby('cluster').agg(
@@ -427,7 +431,8 @@ def run_app():
     if not sub.empty:
     # prepare text
         text = " ".join(sub['idea'].astype(str).tolist())
-        words = [w for w in text.lower().split() if w not in STOPWORDS]
+        text_clean = re.sub(r"[^a-z0-9\s]", " ", text.lower())
+        words = [w for w in text_clean.split() if w not in STOPWORDS and len(w) > 1]
 
     # frequency distribution
         freq_dist = Counter(words)
