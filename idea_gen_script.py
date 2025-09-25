@@ -51,8 +51,10 @@ def clean_text(text):
     txt = re.sub(r"https?://\S+|www\.\S+", " ", txt)
     txt = re.sub(r"[^a-z0-9\s]", " ", txt)
     txt = re.sub(r"\s+", " ", txt).strip()
-    tokens = [t for t in txt.split() 
-        if t not in STOPWORDS and t != "sasol" and len(t) > 1]
+    tokens = [
+        t for t in txt.split() 
+        if t not in STOPWORDS and t not in {"sasol", "use", "using"} and len(t) > 1
+    ]
     return " ".join(tokens)
 
 @st.cache_resource
